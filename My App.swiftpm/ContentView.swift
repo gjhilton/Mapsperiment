@@ -154,40 +154,51 @@ struct MenuSceneView: UIViewRepresentable {
             let dot = SCNNode(geometry: dotGeometry)
             dot.name = place.name
             dot.position = SCNVector3(pos.x, y + Float(dotGeometry.height / 2), pos.z) // sits ON map
-            dot.eulerAngles.x = 0
             scene.rootNode.addChildNode(dot)
             
-            // Label with black outline
+            // Label setup
             
-            // White main text
-            let textGeometry = SCNText(string: place.name, extrusionDepth: 0.1)
-            textGeometry.font = UIFont.systemFont(ofSize: 1.2, weight: .bold)
-            textGeometry.firstMaterial?.diffuse.contents = UIColor.white
+            // Text geometry - black, script font, no extrusion depth (flat)
+            let fontName = "SnellRoundhand-Bold"
+            let font = UIFont(name: fontName, size: 1.2) ?? UIFont.systemFont(ofSize: 1.2, weight: .bold)
+            let textGeometry = SCNText(string: place.name, extrusionDepth: 0)
+            textGeometry.font = font
+            textGeometry.firstMaterial?.diffuse.contents = UIColor.black
             textGeometry.firstMaterial?.isDoubleSided = true
             textGeometry.firstMaterial?.readsFromDepthBuffer = true
+            textGeometry.flatness = 0.1
             
             let textNode = SCNNode(geometry: textGeometry)
-            textNode.scale = SCNVector3(0.5, 0.5, 0.5)
-            textNode.position = SCNVector3(0, 0, 0)
+            textNode.scale = SCNVector3(0.4, 0.4, 0.4)
             textNode.castsShadow = false
             
-            // Black outline text - slightly bigger and behind
-            let outlineGeometry = SCNText(string: place.name, extrusionDepth: 0.1)
-            outlineGeometry.font = UIFont.systemFont(ofSize: 1.2, weight: .bold)
-            outlineGeometry.firstMaterial?.diffuse.contents = UIColor.black
-            outlineGeometry.firstMaterial?.isDoubleSided = true
-            outlineGeometry.firstMaterial?.readsFromDepthBuffer = true
+            // Center text by bounding box
+            let (minVec, maxVec) = textGeometry.boundingBox
+            let textWidth = maxVec.x - minVec.x
+            let textHeight = maxVec.y - minVec.y
+            textNode.position = SCNVector3(-textWidth * 0.4 / 2 - minVec.x * 0.4, -textHeight * 0.4 / 2 - minVec.y * 0.4, 0.01)
             
-            let outlineNode = SCNNode(geometry: outlineGeometry)
-            outlineNode.scale = SCNVector3(0.55, 0.55, 0.55)  // Slightly bigger
-            outlineNode.position = SCNVector3(0, 0, -0.02)    // Slightly behind the white text
-            outlineNode.castsShadow = false
+            // Background rectangle behind text
+            let padding: Float = 0.1
+            let bgWidth = CGFloat(textWidth) * 0.4 + CGFloat(padding * 2)
+            let bgHeight = CGFloat(textHeight) * 0.4 + CGFloat(padding * 2)
+            let bgGeometry = SCNPlane(width: bgWidth, height: bgHeight)
+            bgGeometry.cornerRadius = bgHeight * 0.2
+            bgGeometry.firstMaterial?.diffuse.contents = UIColor.white
+            bgGeometry.firstMaterial?.lightingModel = .constant
+            bgGeometry.firstMaterial?.readsFromDepthBuffer = true
             
+            let bgNode = SCNNode(geometry: bgGeometry)
+            bgNode.position = SCNVector3(0, 0, 0)
+            bgNode.castsShadow = false
+            
+            // Group label nodes
             let labelNode = SCNNode()
-            labelNode.addChildNode(outlineNode)
+            labelNode.addChildNode(bgNode)
             labelNode.addChildNode(textNode)
-            labelNode.position = SCNVector3(pos.x - 0.7, y + 0.5 + Float(dotGeometry.height / 2), pos.z)
+            labelNode.position = SCNVector3(pos.x, y + 0.5 + Float(dotGeometry.height / 2), pos.z)
             
+            // Billboard so label faces user on Y-axis only
             let billboardConstraint = SCNBillboardConstraint()
             billboardConstraint.freeAxes = [.Y]
             labelNode.constraints = [billboardConstraint]
@@ -259,38 +270,32 @@ struct MenuSceneView: UIViewRepresentable {
         
         let vertexSource = SCNGeometrySource(vertices: vertices)
         let indexData = Data(bytes: indices, count: indices.count * MemoryLayout<UInt32>.size)
-        let element = SCNGeometryElement(data: indexData, primitiveType: .triangles,
+        let element = SCNGeometryElement(data: indexData,
+                                         primitiveType: .triangles,
                                          primitiveCount: indices.count / 3,
                                          bytesPerIndex: MemoryLayout<UInt32>.size)
         
         let geometry = SCNGeometry(sources: [vertexSource], elements: [element])
         geometry.firstMaterial = makeParchmentMaterial()
+        
         return SCNNode(geometry: geometry)
     }
     
     func makeParchmentMaterial() -> SCNMaterial {
         let material = SCNMaterial()
+        let parchmentColor = UIColor(red: 0.95, green: 0.91, blue: 0.78, alpha: 1.0)
         
-        let parchmentColor = UIColor(red: 0.95, green: 0.9, blue: 0.75, alpha: 1)
-        
+        // Noise texture overlay
         let noiseFilter = CIFilter(name: "CIRandomGenerator")!
-        
-        let colorFilter = CIFilter(name: "CIColorMatrix")!
-        colorFilter.setValue(noiseFilter.outputImage, forKey: kCIInputImageKey)
-        colorFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputRVector")
-        colorFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
-        colorFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
-        colorFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0.1), forKey: "inputAVector")
-        
-        let compositor = CIFilter(name: "CIConstantColorGenerator", parameters: [kCIInputColorKey: CIColor(color: parchmentColor)])!
+        let colorFilter = CIFilter(name: "CIConstantColorGenerator", parameters: [kCIInputColorKey: CIColor(color: parchmentColor)])!
         
         let compositorFilter = CIFilter(name: "CISourceOverCompositing")!
-        compositorFilter.setValue(colorFilter.outputImage, forKey: kCIInputImageKey)
-        compositorFilter.setValue(compositor.outputImage, forKey: kCIInputBackgroundImageKey)
+        compositorFilter.setValue(colorFilter.outputImage, forKey: kCIInputBackgroundImageKey)
+        compositorFilter.setValue(noiseFilter.outputImage, forKey: kCIInputImageKey)
         
         let context = CIContext()
-        let outputImage = compositorFilter.outputImage!
-        let cgImage = context.createCGImage(outputImage, from: CGRect(x: 0, y: 0, width: 256, height: 256))!
+        let outputImage = compositorFilter.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: 256, height: 256))
+        let cgImage = context.createCGImage(outputImage, from: outputImage.extent)!
         
         material.diffuse.contents = UIImage(cgImage: cgImage)
         material.isDoubleSided = true
@@ -298,7 +303,7 @@ struct MenuSceneView: UIViewRepresentable {
     }
     
     class Coordinator: NSObject {
-        var sceneView: SCNView?
+        weak var sceneView: SCNView?
         let onPlaceSelected: (Place) -> Void
         var places: [Place] = []
         
